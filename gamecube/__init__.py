@@ -23,6 +23,7 @@ This decoder decodes the Nintendo Gamecube controller protocol.
 Details:
 https://www.int03.co.uk/crema/hardware/gamecube/gc-control.html
 https://simplecontrollers.com/blogs/resources/gamecube-protocol
+https://github.com/extremscorner/gba-as-controller/blob/gc/controller/source/main.iwram.c#L264
 '''
 
 from .pd import Decoder

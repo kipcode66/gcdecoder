@@ -24,12 +24,13 @@ class SamplerateError(Exception):
     pass
 
 cmd_map = {
-    0x00: "CONSOLE PROBE",
-    0xFF: "CONSOLE CALIB",
-    0x41: "CONSOLE PROBE ORIGIN",
-    0x42: "CONSOLE CALIB ORIGIN",
-    0x40: "CONSOLE READ INPUT",
-    0x54: "CONSOLE KEYBOARD READ",
+    0x00: "PROBE",
+    0xFF: "RESET",
+    0x40: "STATUS",
+    0x41: "ORIGIN",
+    0x42: "CALIBRATE",
+    0x43: "STATUS LONG",
+    0x54: "KEYBOARD READ",
 }
 
 class Decoder(srd.Decoder):
@@ -50,20 +51,14 @@ class Decoder(srd.Decoder):
         ('byte', 'Byte'),
         ('stop', 'Stop Bit'),
         ('cmd', 'Commands'),
-        ('buttons', 'Buttons'),
-        ('a_stick', 'Analog Stick'),
-        ('c_stick', 'C Stick'),
-        ('l_trig', 'Left Trigger'),
-        ('r_trig', 'Right Trigger'),
-        ('origin1', 'Deadzone 1'),
-        ('origin2', 'Deadzone 2'),
+        ('resp', 'Responses'),
         ('warning', 'Warning'),
     )
     annotation_rows = (
         ('bits', 'Bits', (0,)),
         ('bytes', 'Bytes', (1,2)),
-        ('cmds', 'Commands', tuple(range(3, 11))),
-        ('warnings', 'Warnings', (11,)),
+        ('cmds', 'Commands', (3,4)),
+        ('warnings', 'Warnings', (5,)),
     )
 
     def __init__(self):
@@ -95,12 +90,12 @@ class Decoder(srd.Decoder):
     def checks(self):
         # Check if samplerate is appropriate.
         if self.samplerate < 2000000:
-            self.putm([11, ['Sampling rate is too low. Must be above ' +
+            self.putm([5, ['Sampling rate is too low. Must be above ' +
                             '2MHz for proper overdrive mode decoding.']])
             raise SamplerateError('Sampling rate is too low. Must be above ' +
                             '2MHz for proper overdrive mode decoding.')
         elif self.samplerate < 5000000:
-            self.putm([11, ['Sampling rate is suggested to be above 5MHz ' +
+            self.putm([5, ['Sampling rate is suggested to be above 5MHz ' +
                             'for proper overdrive mode decoding.']])
 
     def display_cmd(self, cmd, start, end):
@@ -109,20 +104,20 @@ class Decoder(srd.Decoder):
 
     def display_inputs(self):
         self.put(self.bytes[0][1], self.bytes[1][2], self.out_ann, [4, [f"Buttons:{' A' if self.bytes[0][0] & 1 else ''}{' B' if self.bytes[0][0] & 2 else ''}{' X' if self.bytes[0][0] & 4 else ''}{' Y' if self.bytes[0][0] & 8 else ''}{' Start' if self.bytes[0][0] & 0x10 else ''}{' DL' if self.bytes[1][0] & 1 else ''}{' DR' if self.bytes[1][0] & 2 else ''}{' DD' if self.bytes[1][0] & 4 else ''}{' DU' if self.bytes[1][0] & 8 else ''}{' Z' if self.bytes[1][0] & 0x10 else ''}{' R' if self.bytes[1][0] & 0x20 else ''}{' L' if self.bytes[1][0] & 0x40 else ''}"]])
-        self.put(self.bytes[2][1], self.bytes[3][2], self.out_ann, [5, [f"X:{self.bytes[2][0] - 128}; Y:{self.bytes[3][0] - 128}"]])
-        self.put(self.bytes[4][1], self.bytes[5][2], self.out_ann, [6, [f"X:{self.bytes[4][0] - 128}; Y:{self.bytes[5][0] - 128}"]])
-        self.put(self.bytes[6][1], self.bytes[6][2], self.out_ann, [7, [f"L:{self.bytes[6][0]}"]])
-        self.put(self.bytes[7][1], self.bytes[7][2], self.out_ann, [8, [f"R:{self.bytes[7][0]}"]])
+        self.put(self.bytes[2][1], self.bytes[3][2], self.out_ann, [4, [f"[Analog] X:{self.bytes[2][0] - 128}; Y:{self.bytes[3][0] - 128}"]])
+        self.put(self.bytes[4][1], self.bytes[5][2], self.out_ann, [4, [f"[C-Stick] X:{self.bytes[4][0] - 128}; Y:{self.bytes[5][0] - 128}"]])
+        self.put(self.bytes[6][1], self.bytes[6][2], self.out_ann, [4, [f"L:{self.bytes[6][0]}"]])
+        self.put(self.bytes[7][1], self.bytes[7][2], self.out_ann, [4, [f"R:{self.bytes[7][0]}"]])
         if len(self.bytes) >= 10:
-            self.put(self.bytes[8][1], self.bytes[8][2], self.out_ann, [9, [f"Deadzone1:{self.bytes[8][0]}"]])
-            self.put(self.bytes[9][1], self.bytes[9][2], self.out_ann, [10, [f"Deadzone2:{self.bytes[9][0]}"]])
+            self.put(self.bytes[8][1], self.bytes[8][2], self.out_ann, [4, [f"Deadzone1:{self.bytes[8][0]}"]])
+            self.put(self.bytes[9][1], self.bytes[9][2], self.out_ann, [4, [f"Deadzone2:{self.bytes[9][0]}"]])
 
     def process_next_bit(self, bit, start, end):
         if self.cmd_state in ["WAIT_STOP_BIT", "WAIT_STOP_BIT_READ"]:
             if bit == 1:
                 self.cmd_state = "WAIT_RESP_BYTE" if self.cmd_state == "WAIT_STOP_BIT" else "INITIAL"
-                self.put(start, end, self.out_ann, [2, ["STOP"]])
                 self.put(start, end, self.out_ann, [0, [f"{bit}"]])
+                self.put(start, end, self.out_ann, [2, ["STOP"]])
                 self.bits.clear()
                 self.bytes.clear()
         else:
@@ -145,7 +140,7 @@ class Decoder(srd.Decoder):
         if self.cmd_state == "INITIAL":
             if len(self.bytes) > 0:
                 self.current_cmd = self.bytes[0]
-                if self.bytes[0][0] in [0x00, 0x41, 0x42, 0xFF]:
+                if self.bytes[0][0] in [0x00, 0x41, 0x42, 0x43, 0xFF]:
                     if len(self.bytes) >= 1:
                         self.cmd_state = "WAIT_STOP_BIT"
                         self.cmd_read_size = 3 if self.bytes[0][0] in [0x00, 0xFF] else 10
@@ -158,6 +153,7 @@ class Decoder(srd.Decoder):
                         self.cmd_read_size = 8
                         cmd, cmd_start, cmd_end = self.current_cmd
                         self.display_cmd(cmd, cmd_start, cmd_end)
+                        self.put(self.bytes[1][1], self.bytes[1][2], self.out_ann, [3, [f"Mode: {self.bytes[1][0] & 0b111:#04x}"]])
                         self.put(self.bytes[2][1], self.bytes[2][2], self.out_ann, [3, [f"Rumble: {'ON' if self.bytes[2][0] & 1 else 'OFF'}"]])
                         self.bytes.clear()
                 elif self.bytes[0][0] == 0x54:
@@ -174,8 +170,9 @@ class Decoder(srd.Decoder):
                 if len(self.bytes) >= self.cmd_read_size:
                     self.cmd_state = "WAIT_STOP_BIT_READ"
                     if self.current_cmd[0] in [0x00, 0xFF]:
-                        self.put(self.bytes[0][1], self.bytes[-1][2], self.out_ann, [3, ["PROBE RESPONSE"]])
-                    elif self.current_cmd[0] in [0x40, 0x41, 0x42]:
+                        self.put(self.bytes[0][1], self.bytes[1][2], self.out_ann, [4, ["HAS MOTOR" if self.bytes[0][0] & 0x20 != 0x20 else "NO MOTOR"]])
+                        self.put(self.bytes[2][1], self.bytes[2][2], self.out_ann, [4, ["DEVICE ID"]])
+                    elif self.current_cmd[0] in [0x40, 0x41, 0x42, 0x43]:
                         self.display_inputs()
                     self.cmd_read_size = -1
 
