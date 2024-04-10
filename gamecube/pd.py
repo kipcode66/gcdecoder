@@ -129,7 +129,7 @@ class Decoder(srd.Decoder):
         b_DU = 'U' if self.bytes[1][0] & 8 else ''
         b_Z = 'Z' if self.bytes[1][0] & 0x10 else ''
         b_R = 'Rt' if self.bytes[1][0] & 0x20 else ''
-        b_L = 'Lr' if self.bytes[1][0] & 0x40 else ''
+        b_L = 'Lt' if self.bytes[1][0] & 0x40 else ''
         self.put(self.bytes[0][1], self.bytes[1][2], self.out_ann, [4, [f"Buttons: {b_A}{b_B}{b_X}{b_Y}{b_Start}{b_DL}{b_DR}{b_DD}{b_DU}{b_Z}{b_R}{b_L}", f"{b_A}{b_B}{b_X}{b_Y}{b_Start}{b_DL}{b_DR}{b_DD}{b_DU}{b_Z}{b_R}{b_L}"]])
         self.put(self.bytes[2][1], self.bytes[2][2], self.out_ann, [4, [f"Analog X: {self.bytes[2][0] - 128}", f"A-X:{self.bytes[2][0] - 128}", f"{self.bytes[2][0] - 128}"]])
         self.put(self.bytes[3][1], self.bytes[3][2], self.out_ann, [4, [f"Analog Y: {self.bytes[3][0] - 128}", f"A-Y:{self.bytes[3][0] - 128}", f"{self.bytes[3][0] - 128}"]])
