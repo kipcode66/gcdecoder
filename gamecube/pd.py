@@ -45,6 +45,8 @@ motor_modes = {
 controller_types = {
     0: "N64",
     1: "GC",
+    2: "UNK",
+    3: "UNK",
 }
 
 class Decoder(srd.Decoder):
