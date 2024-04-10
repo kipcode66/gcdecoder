@@ -25,12 +25,25 @@ class SamplerateError(Exception):
 
 cmd_map = {
     0x00: "PROBE",
-    0xFF: "RESET",
+    0x14: "READ GBA",
+    0x15: "WRITE GBA",
     0x40: "STATUS",
     0x41: "ORIGIN",
     0x42: "CALIBRATE",
     0x43: "STATUS LONG",
     0x54: "KEYBOARD READ",
+    0xFF: "RESET",
+}
+
+motor_modes = {
+    0: "OFF",
+    1: "ON",
+    2: "BREAK",
+}
+
+controller_types = {
+    0: "N64",
+    1: "GC",
 }
 
 class Decoder(srd.Decoder):
@@ -85,7 +98,7 @@ class Decoder(srd.Decoder):
             self.samplerate = value
 
     def putm(self, data):
-        self.put(0, 0, self.out_ann, data)
+        self.put(0, self.samplenum, self.out_ann, data)
 
     def checks(self):
         # Check if samplerate is appropriate.
@@ -112,12 +125,30 @@ class Decoder(srd.Decoder):
             self.put(self.bytes[8][1], self.bytes[8][2], self.out_ann, [4, [f"Deadzone1:{self.bytes[8][0]}"]])
             self.put(self.bytes[9][1], self.bytes[9][2], self.out_ann, [4, [f"Deadzone2:{self.bytes[9][0]}"]])
 
+    def display_probe_resp(self):
+        [byte0, byte1, byte2] = [b[0] for b in self.bytes]
+        wireless_state = "Fixed " if byte0 & 0x02 else "Variable "
+        wireless_rx = 'Bidirectional ' if byte0 & 0x40 else '' # Supports Wireless reception of data for the controller
+        wireless = f'Wireless {wireless_state}{wireless_rx}' if byte0 & 0x80 else 'Wired '
+        motor = ' with Rumble' if not byte0 & 0x20 else ''
+        controller_type_id = (byte0 >> 3) & 3
+        standard = f'{"Non-" if not byte0 & 1 else ""}Standard '
+        controller_type = f'Unknown ({controller_type_id:#04x})' if not controller_type_id in controller_types.keys() else controller_types[controller_type_id] + ' '
+        self.put(self.bytes[0][1], self.bytes[1][2], self.out_ann, [4, [f"{standard}{wireless}{controller_type}Controller{motor}", f"{standard}{controller_type}{motor}", f"{controller_type}{motor}", f"{controller_type}"]])
+        if controller_type_id == 1:
+            err = byte2 & 0x80
+            err_latch = byte2 & 0x40
+            origin_not_sent = byte2 & 0x20
+            rumble_mode = (byte2 & 0x18) >> 3
+            poll_mode = (byte2 & 0x07)
+            self.put(self.bytes[2][1], self.bytes[2][2], self.out_ann, [4, [f"{'Had ERR;' if err else ''}{'ERR;' if err_latch else ''}{'Origin Missing;' if origin_not_sent else ''}Rumble mode:{rumble_mode};Poll mode:{poll_mode}", f"Rumble:{rumble_mode};Poll:{poll_mode}", f"R:{rumble_mode};P:{poll_mode}"]])
+
     def process_next_bit(self, bit, start, end):
         if self.cmd_state in ["WAIT_STOP_BIT", "WAIT_STOP_BIT_READ"]:
             if bit == 1:
                 self.cmd_state = "WAIT_RESP_BYTE" if self.cmd_state == "WAIT_STOP_BIT" else "INITIAL"
                 self.put(start, end, self.out_ann, [0, [f"{bit}"]])
-                self.put(start, end, self.out_ann, [2, ["STOP"]])
+                self.put(start, end, self.out_ann, [2, ["STOP Bit", "STOP"]])
                 self.bits.clear()
                 self.bytes.clear()
         else:
@@ -170,8 +201,7 @@ class Decoder(srd.Decoder):
                 if len(self.bytes) >= self.cmd_read_size:
                     self.cmd_state = "WAIT_STOP_BIT_READ"
                     if self.current_cmd[0] in [0x00, 0xFF]:
-                        self.put(self.bytes[0][1], self.bytes[1][2], self.out_ann, [4, ["HAS MOTOR" if self.bytes[0][0] & 0x20 != 0x20 else "NO MOTOR"]])
-                        self.put(self.bytes[2][1], self.bytes[2][2], self.out_ann, [4, ["DEVICE ID"]])
+                        self.display_probe_resp()
                     elif self.current_cmd[0] in [0x40, 0x41, 0x42, 0x43]:
                         self.display_inputs()
                     self.cmd_read_size = -1
@@ -199,6 +229,7 @@ class Decoder(srd.Decoder):
                         # Found a 0
                         self.process_next_bit(0, self.fall, self.samplenum)
                     else:
+                        # Found a 1
                         self.process_next_bit(1, self.fall, self.samplenum)
                     self.fall = self.samplenum
                     self.edge_state = "FIND_RISE"
