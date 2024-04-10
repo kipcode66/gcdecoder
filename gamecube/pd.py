@@ -39,6 +39,7 @@ motor_modes = {
     0: "OFF",
     1: "ON",
     2: "BREAK",
+    3: "UNK"
 }
 
 controller_types = {
@@ -89,6 +90,7 @@ class Decoder(srd.Decoder):
         self.current_cmd = None
         self.cmd_read_buf = []
         self.cmd_read_size = -1
+        self.poll_mode = 0
 
     def start(self):
         self.out_ann = self.register(srd.OUTPUT_ANN)
@@ -116,19 +118,33 @@ class Decoder(srd.Decoder):
         self.put(start, end, self.out_ann, [3, [f"{cmd_str}"]])
 
     def display_inputs(self):
-        self.put(self.bytes[0][1], self.bytes[1][2], self.out_ann, [4, [f"Buttons:{' A' if self.bytes[0][0] & 1 else ''}{' B' if self.bytes[0][0] & 2 else ''}{' X' if self.bytes[0][0] & 4 else ''}{' Y' if self.bytes[0][0] & 8 else ''}{' Start' if self.bytes[0][0] & 0x10 else ''}{' DL' if self.bytes[1][0] & 1 else ''}{' DR' if self.bytes[1][0] & 2 else ''}{' DD' if self.bytes[1][0] & 4 else ''}{' DU' if self.bytes[1][0] & 8 else ''}{' Z' if self.bytes[1][0] & 0x10 else ''}{' R' if self.bytes[1][0] & 0x20 else ''}{' L' if self.bytes[1][0] & 0x40 else ''}"]])
-        self.put(self.bytes[2][1], self.bytes[3][2], self.out_ann, [4, [f"[Analog] X:{self.bytes[2][0] - 128}; Y:{self.bytes[3][0] - 128}"]])
-        self.put(self.bytes[4][1], self.bytes[5][2], self.out_ann, [4, [f"[C-Stick] X:{self.bytes[4][0] - 128}; Y:{self.bytes[5][0] - 128}"]])
-        self.put(self.bytes[6][1], self.bytes[6][2], self.out_ann, [4, [f"L:{self.bytes[6][0]}"]])
-        self.put(self.bytes[7][1], self.bytes[7][2], self.out_ann, [4, [f"R:{self.bytes[7][0]}"]])
+        b_A = 'A' if self.bytes[0][0] & 1 else ''
+        b_B = 'B' if self.bytes[0][0] & 2 else ''
+        b_X = 'X' if self.bytes[0][0] & 4 else ''
+        b_Y = 'Y' if self.bytes[0][0] & 8 else ''
+        b_Start = 'S' if self.bytes[0][0] & 0x10 else ''
+        b_DL = 'L' if self.bytes[1][0] & 1 else ''
+        b_DR = 'R' if self.bytes[1][0] & 2 else ''
+        b_DD = 'D' if self.bytes[1][0] & 4 else ''
+        b_DU = 'U' if self.bytes[1][0] & 8 else ''
+        b_Z = 'Z' if self.bytes[1][0] & 0x10 else ''
+        b_R = 'Rt' if self.bytes[1][0] & 0x20 else ''
+        b_L = 'Lr' if self.bytes[1][0] & 0x40 else ''
+        self.put(self.bytes[0][1], self.bytes[1][2], self.out_ann, [4, [f"Buttons: {b_A}{b_B}{b_X}{b_Y}{b_Start}{b_DL}{b_DR}{b_DD}{b_DU}{b_Z}{b_R}{b_L}", f"{b_A}{b_B}{b_X}{b_Y}{b_Start}{b_DL}{b_DR}{b_DD}{b_DU}{b_Z}{b_R}{b_L}"]])
+        self.put(self.bytes[2][1], self.bytes[2][2], self.out_ann, [4, [f"Analog X: {self.bytes[2][0] - 128}", f"A-X:{self.bytes[2][0] - 128}", f"{self.bytes[2][0] - 128}"]])
+        self.put(self.bytes[3][1], self.bytes[3][2], self.out_ann, [4, [f"Analog Y: {self.bytes[3][0] - 128}", f"A-Y:{self.bytes[3][0] - 128}", f"{self.bytes[3][0] - 128}"]])
+        self.put(self.bytes[4][1], self.bytes[4][2], self.out_ann, [4, [f"C-Stick X: {self.bytes[4][0] - 128}", f"C-X:{self.bytes[4][0] - 128}", f"{self.bytes[4][0] - 128}"]])
+        self.put(self.bytes[5][1], self.bytes[5][2], self.out_ann, [4, [f"C-Stick Y: {self.bytes[5][0] - 128}", f"C-Y:{self.bytes[5][0] - 128}", f"{self.bytes[5][0] - 128}"]])
+        self.put(self.bytes[6][1], self.bytes[6][2], self.out_ann, [4, [f"L:{self.bytes[6][0]}", f"{self.bytes[6][0]}"]])
+        self.put(self.bytes[7][1], self.bytes[7][2], self.out_ann, [4, [f"R:{self.bytes[7][0]}", f"{self.bytes[7][0]}"]])
         if len(self.bytes) >= 10:
-            self.put(self.bytes[8][1], self.bytes[8][2], self.out_ann, [4, [f"Deadzone1:{self.bytes[8][0]}"]])
-            self.put(self.bytes[9][1], self.bytes[9][2], self.out_ann, [4, [f"Deadzone2:{self.bytes[9][0]}"]])
+            self.put(self.bytes[8][1], self.bytes[8][2], self.out_ann, [4, [f"Origin X: {self.bytes[8][0]}", f"X:{self.bytes[8][0]}", f"{self.bytes[8][0]}"]])
+            self.put(self.bytes[9][1], self.bytes[9][2], self.out_ann, [4, [f"Origin Y: {self.bytes[9][0]}", f"Y:{self.bytes[9][0]}", f"{self.bytes[9][0]}"]])
 
     def display_probe_resp(self):
         [byte0, byte1, byte2] = [b[0] for b in self.bytes]
         wireless_state = "Fixed " if byte0 & 0x02 else "Variable "
-        wireless_rx = 'Bidirectional ' if byte0 & 0x40 else '' # Supports Wireless reception of data for the controller
+        wireless_rx = 'Bidirectional ' if byte0 & 0x40 else '' # Supports Wireless reception of data to the controller
         wireless = f'Wireless {wireless_state}{wireless_rx}' if byte0 & 0x80 else 'Wired '
         motor = ' with Rumble' if not byte0 & 0x20 else ''
         controller_type_id = (byte0 >> 3) & 3
@@ -141,7 +157,8 @@ class Decoder(srd.Decoder):
             origin_not_sent = byte2 & 0x20
             rumble_mode = (byte2 & 0x18) >> 3
             poll_mode = (byte2 & 0x07)
-            self.put(self.bytes[2][1], self.bytes[2][2], self.out_ann, [4, [f"{'Had ERR;' if err else ''}{'ERR;' if err_latch else ''}{'Origin Missing;' if origin_not_sent else ''}Rumble mode:{rumble_mode};Poll mode:{poll_mode}", f"Rumble:{rumble_mode};Poll:{poll_mode}", f"R:{rumble_mode};P:{poll_mode}"]])
+            self.poll_mode = poll_mode
+            self.put(self.bytes[2][1], self.bytes[2][2], self.out_ann, [4, [f"{'Had ERR;' if err else ''}{'ERR;' if err_latch else ''}{'Origin Missing;' if origin_not_sent else ''}Rumble mode:{motor_modes[rumble_mode]};Poll mode:{poll_mode}", f"Rumble:{rumble_mode};Poll:{poll_mode}", f"R:{rumble_mode};P:{poll_mode}"]])
 
     def process_next_bit(self, bit, start, end):
         if self.cmd_state in ["WAIT_STOP_BIT", "WAIT_STOP_BIT_READ"]:
