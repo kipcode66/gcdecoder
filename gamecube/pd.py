@@ -202,7 +202,7 @@ class Decoder(srd.Decoder):
                         cmd, cmd_start, cmd_end = self.current_cmd
                         self.display_cmd(cmd, cmd_start, cmd_end)
                         self.put(self.bytes[1][1], self.bytes[1][2], self.out_ann, [3, [f"Mode: {self.bytes[1][0] & 0b111:#04x}"]])
-                        self.put(self.bytes[2][1], self.bytes[2][2], self.out_ann, [3, [f"Rumble: {'ON' if self.bytes[2][0] & 1 else 'OFF'}"]])
+                        self.put(self.bytes[2][1], self.bytes[2][2], self.out_ann, [3, [f"Rumble: {motor_modes[self.bytes[2][0] & 3]}", f"{motor_modes[self.bytes[2][0] & 3]}"]])
                         self.bytes.clear()
                 elif self.bytes[0][0] == 0x54:
                     if len(self.bytes) >= 3:
