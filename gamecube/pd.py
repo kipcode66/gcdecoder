@@ -234,8 +234,11 @@ class Decoder(srd.Decoder):
                 self.wait([{0: 'f'}])
                 self.fall = self.samplenum
                 self.edge_state = "FIND_RISE"
-                if self.samplenum - self.rise > 0.00001:
+                # if the last rise was too long ago, we reset the command
+                if (self.samplenum - self.rise) / self.samplerate > 0.00001:
                     self.bits.clear()
+                    self.bytes.clear()
+                    self.cmd_state = "INITIAL"
             elif self.edge_state == "FIND_RISE":
                 self.wait([{0: 'r'}])
                 self.rise = self.samplenum
